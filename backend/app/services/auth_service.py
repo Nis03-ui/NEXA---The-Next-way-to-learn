@@ -82,7 +82,7 @@ class AuthService:
         user = await self._repo.create(
             name=name.strip(),
             email=email,
-            hashed_password=hashed,
+            password_hash=hashed,
             role=role,
         )
 
@@ -110,15 +110,15 @@ class AuthService:
             logger.warning("Login failed for email: %s (not found or inactive)", email)
             raise AuthenticationException("Invalid credentials or account is inactive.")
 
-        if not verify_password(password, user.hashed_password):
+        if not verify_password(password, user.password_hash):
             logger.warning("Login failed for user id=%s: bad password", user.id)
             raise AuthenticationException("Invalid credentials or account is inactive.")
 
         # Opportunistic rehash if the stored hash is outdated
-        if needs_rehash(user.hashed_password):
+        if needs_rehash(user.password_hash):
             logger.info("Rehashing password for user id=%s", user.id)
             new_hash = hash_password(password)
-            await self._repo.update(user, hashed_password=new_hash)
+            await self._repo.update(user, password_hash=new_hash)
 
         access_token = create_access_token(subject=str(user.id), role=user.role.value)
         refresh_token = create_refresh_token(subject=str(user.id))
@@ -161,6 +161,7 @@ class AuthService:
         logger.info("Access token refreshed for user id=%s", user.id)
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "expires_in": _ACCESS_TOKEN_EXPIRES_IN,
         }
@@ -182,14 +183,14 @@ class AuthService:
             AuthenticationException: If the current password is incorrect.
             ValidationException: If the new password fails strength validation.
         """
-        if not verify_password(current_password, user.hashed_password):
+        if not verify_password(current_password, user.password_hash):
             logger.warning("Change-password: wrong current password for user id=%s", user.id)
             raise AuthenticationException("Current password is incorrect.")
 
         self._validate_password_strength(new_password)
 
         new_hash = hash_password(new_password)
-        await self._repo.update(user, hashed_password=new_hash)
+        await self._repo.update(user, password_hash=new_hash)
 
         logger.info("Password changed for user id=%s", user.id)
 

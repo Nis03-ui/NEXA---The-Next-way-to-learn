@@ -64,20 +64,20 @@ def _create_token(
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(subject: str, role: str) -> str:
     """Create a short-lived JWT access token."""
     return _create_token(
-        subject=user_id,
+        subject=subject,
         token_type="access",
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         extra_claims={"role": role},
     )
 
 
-def create_refresh_token(user_id: str) -> str:
+def create_refresh_token(subject: str) -> str:
     """Create a long-lived JWT refresh token."""
     return _create_token(
-        subject=user_id,
+        subject=subject,
         token_type="refresh",
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )

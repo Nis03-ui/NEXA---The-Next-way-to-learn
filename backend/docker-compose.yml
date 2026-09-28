@@ -71,30 +71,10 @@ services:
       - nexa_network
     command: >
       sh -c "
-        alembic upgrade head &&
+        PYTHONPATH=/app python scripts/init_db.py &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
-  # ── Celery Worker (Background Tasks) ─────────────────────────────────────
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: nexa_worker
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-nexa}:${POSTGRES_PASSWORD:-nexapassword}@postgres:5432/${POSTGRES_DB:-nexadb}
-      REDIS_URL: redis://redis:6379/0
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - nexa_network
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
 
 volumes:
   postgres_data:

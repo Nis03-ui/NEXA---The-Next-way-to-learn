@@ -1,6 +1,7 @@
 """
 Enrollment ORM model.
 """
+from datetime import datetime
 import uuid
 from enum import Enum
 
@@ -32,7 +33,7 @@ class Enrollment(Base, UUIDPrimaryKeyMixin):
         nullable=False,
         index=True,
     )
-    enrolled_at: Mapped[DateTime] = mapped_column(
+    enrolled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     status: Mapped[EnrollmentStatus] = mapped_column(

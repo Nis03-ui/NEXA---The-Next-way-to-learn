@@ -50,25 +50,28 @@ class BaseRepository(Generic[ModelT]):
 
     # ── Write ─────────────────────────────────────────────────────────────────
 
-    async def create(self, obj: ModelT) -> ModelT:
+    async def create(self, **kwargs) -> ModelT:
         """
         Persist a new model instance.
 
         Adds the object to the session, flushes to obtain DB-generated values
         (e.g. ``id``, ``created_at``), then refreshes the in-memory state.
         """
+        obj = self._model(**kwargs)
         self._session.add(obj)
         await self._session.flush()
         await self._session.refresh(obj)
         return obj
 
-    async def update(self, obj: ModelT) -> ModelT:
+    async def update(self, obj: ModelT, **kwargs) -> ModelT:
         """
         Persist changes made to an already-tracked model instance.
 
         Flushes the pending changes and refreshes the object so callers
         receive the DB-current state.
         """
+        for key, value in kwargs.items():
+            setattr(obj, key, value)
         await self._session.flush()
         await self._session.refresh(obj)
         return obj

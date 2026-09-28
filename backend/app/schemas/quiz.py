@@ -157,6 +157,21 @@ class QuizResponse(BaseModel):
     question_count: int = Field(..., ge=0, description="Total number of questions in this quiz.")
 
 
+class StudentQuizDetailResponse(BaseModel):
+    """Student-facing quiz detail that never exposes correct answers."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    course_id: uuid.UUID
+    title: str
+    description: str | None = None
+    source: QuizSource
+    created_at: datetime
+    question_count: int
+    questions: list[QuestionPublicResponse] = Field(default_factory=list)
+
+
 class QuizDetailResponse(BaseModel):
     """
     Detailed quiz record including all questions with correct answers.
