@@ -4,35 +4,35 @@ import {
   BookOpen,
   Clock3,
   MessageSquare,
-  TrendingUp,
+  ClipboardCheck,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
-import { ai } from "@/lib/api"
+import { ai, quizzes } from "@/lib/api"
 import { dashboardStats } from "@/lib/dashboard/data"
 
 export default function DashboardStats() {
-  const [aiSessionCount, setAiSessionCount] = useState(
-    dashboardStats.aiSessions,
-  )
+  const [aiSessionCount, setAiSessionCount] = useState<number | null>(null)
+  const [quizCount, setQuizCount] = useState<number | null>(null)
 
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true
 
-    async function loadAiSessions() {
+    async function loadStats() {
       try {
-        const sessions = await ai.sessions()
+        const [sessions, availableQuizzes] = await Promise.all([
+          ai.sessions(),
+          quizzes.getAll(),
+        ])
 
-        if (mounted) {
-          setAiSessionCount(sessions.length)
-        }
+        if (!mounted) return
+
+        setAiSessionCount(sessions.length)
+        setQuizCount(availableQuizzes.length)
       } catch (error) {
-        console.error(
-          "Failed to load AI session count:",
-          error,
-        )
+        console.error("Failed to load dashboard stats:", error)
       } finally {
         if (mounted) {
           setLoading(false)
@@ -40,7 +40,7 @@ export default function DashboardStats() {
       }
     }
 
-    loadAiSessions()
+    loadStats()
 
     return () => {
       mounted = false
@@ -53,26 +53,36 @@ export default function DashboardStats() {
       value: dashboardStats.subjects.toString(),
       description: "Active this semester",
       icon: BookOpen,
+      badge: "Academic",
+      badgeClass: "bg-slate-100 text-slate-500",
     },
     {
       label: "AI Sessions",
       value: loading
         ? "—"
-        : aiSessionCount.toString(),
+        : (aiSessionCount ?? 0).toString(),
       description: "Conversations with NEXA",
       icon: MessageSquare,
+      badge: "Live",
+      badgeClass: "bg-emerald-50 text-emerald-600",
+    },
+    {
+      label: "Assessments",
+      value: loading
+        ? "—"
+        : (quizCount ?? 0).toString(),
+      description: "Available quizzes",
+      icon: ClipboardCheck,
+      badge: "Available",
+      badgeClass: "bg-blue-50 text-blue-600",
     },
     {
       label: "Study Time",
       value: `${dashboardStats.studyHours}h`,
       description: "This week",
       icon: Clock3,
-    },
-    {
-      label: "Semester Progress",
-      value: `${dashboardStats.semesterProgress}%`,
-      description: "Overall completion",
-      icon: TrendingUp,
+      badge: "Tracking",
+      badgeClass: "bg-slate-100 text-slate-500",
     },
   ]
 
@@ -91,8 +101,10 @@ export default function DashboardStats() {
                 <Icon size={18} />
               </div>
 
-              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-600">
-                Active
+              <span
+                className={`rounded-full px-2 py-1 text-[10px] font-semibold ${stat.badgeClass}`}
+              >
+                {stat.badge}
               </span>
             </div>
 

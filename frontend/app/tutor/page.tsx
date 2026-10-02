@@ -643,7 +643,7 @@ export default function TutorPage() {
                             <SourceCard
                               key={`${source.content_id}-${source.chunk_index}`}
                               title={source.title}
-                              subject={source.subject}
+                              subject={source.subject ?? "Course material"}
                             />
                           ))}
                         </div>

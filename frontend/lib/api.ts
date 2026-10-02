@@ -313,3 +313,105 @@ export const teacher = {
       method: "DELETE",
     }),
 }
+/* =========================================================
+   QUIZ TYPES
+========================================================= */
+
+export type QuizQuestion = {
+  id: number
+  question: string
+  question_type: string
+  options: string[]
+  marks: number
+  order_index: number
+}
+
+export type Quiz = {
+  id: number
+  title: string
+  description: string | null
+  subject: string
+  author_id: number
+  published: boolean
+  time_limit_minutes: number | null
+  created_at: string
+  updated_at: string | null
+  questions: QuizQuestion[]
+}
+
+export type QuizListItem = {
+  id: number
+  title: string
+  description: string | null
+  subject: string
+  author_id: number
+  published: boolean
+  time_limit_minutes: number | null
+  question_count: number
+}
+
+export type QuizQuestionCreate = {
+  question: string
+  question_type?: string
+  options?: string[]
+  correct_answer: string
+  marks?: number
+}
+
+export type QuizCreate = {
+  title: string
+  description?: string | null
+  subject: string
+  time_limit_minutes?: number | null
+  published?: boolean
+  questions: QuizQuestionCreate[]
+}
+
+export type QuizUpdate = Partial<QuizCreate>
+
+export type QuizAnswerCreate = {
+  question_id: number
+  answer: string
+}
+
+export type QuizAttempt = {
+  id: number
+  quiz_id: number
+  student_id: number
+  score: number
+  total_marks: number
+  submitted_at: string
+  answers: {
+    id: number
+    question_id: number
+    answer: string
+    is_correct: boolean
+    marks_awarded: number
+  }[]
+}
+
+/* =========================================================
+   STUDENT QUIZ API
+========================================================= */
+
+export const quizzes = {
+  getAll: () =>
+    api<QuizListItem[]>("/quizzes"),
+
+  getById: (id: number) =>
+    api<Quiz>(`/quizzes/${id}`),
+
+  submitAttempt: (
+    id: number,
+    answers: QuizAnswerCreate[],
+  ) =>
+    api<QuizAttempt>(`/quizzes/${id}/attempt`, {
+      method: "POST",
+      body: JSON.stringify({
+        answers,
+      }),
+    }),
+
+  getAttempts: (id: number) =>
+    api<QuizAttempt[]>(`/quizzes/${id}/attempts`),
+}
