@@ -1,112 +1,129 @@
-"""
-NEXA LMS — FastAPI application entry point.
-"""
-import contextlib
-from typing import AsyncGenerator
+from contextlib import asynccontextmanager
 
-import redis.asyncio as aioredis
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
+from app.api import admin, ai, auth, teacher, users
 from app.core.config import settings
-from app.core.exceptions import register_exception_handlers
-from app.core.logging import configure_logging, get_logger
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.exceptions import (
+    AppError,
+    app_error_handler,
+    general_error_handler,
+)
+from app.db.base import Base
 from app.db.session import engine
+from app.models import *
 
-logger = get_logger(__name__)
 
-
-@contextlib.asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application startup and shutdown lifecycle."""
-    configure_logging()
-    logger.info(
-        "NEXA LMS starting",
-        environment=settings.ENVIRONMENT,
-        version=settings.APP_VERSION,
-    )
-
-    # Verify database connectivity on startup
-    try:
-        from sqlalchemy import text
-        async with engine.begin() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("Database connection verified")
-    except Exception as e:
-        logger.error("Database connection failed on startup", error=str(e))
-
-    # Verify Redis connectivity on startup
-    try:
-        redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-        await redis.ping()
-        await redis.close()
-        logger.info("Redis connection verified")
-    except Exception as e:
-        logger.warning("Redis connection failed on startup", error=str(e))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create database tables when the application starts.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     yield
 
-    logger.info("NEXA LMS shutting down")
+    # Dispose database connections when the application shuts down.
     await engine.dispose()
 
 
-def create_application() -> FastAPI:
-    """Create and configure the FastAPI application."""
-    app = FastAPI(
-        title=settings.APP_NAME,
-        version=settings.APP_VERSION,
-        description=(
-            "NEXA — The Next Way to Learn. "
-            "AI-powered Learning Management System backend API."
-        ),
-        docs_url="/docs" if not settings.is_production else None,
-        redoc_url="/redoc" if not settings.is_production else None,
-        openapi_url="/openapi.json" if not settings.is_production else None,
-        lifespan=lifespan,
-        openapi_tags=[
-            {"name": "Authentication", "description": "User registration and login"},
-            {"name": "Users", "description": "User management (Admin)"},
-            {"name": "Courses", "description": "Course catalog and management"},
-            {"name": "CMS", "description": "Chapter and note management"},
-            {"name": "Enrollments", "description": "Student course enrollment"},
-            {"name": "Assignments", "description": "Assignment management and submissions"},
-            {"name": "Quizzes", "description": "Quiz creation and attempts"},
-            {"name": "AI", "description": "AI tutor, summarizer, and study planner"},
-            {"name": "Analytics", "description": "Learning analytics and reporting"},
-            {"name": "Admin", "description": "Administrative platform management"},
-            {"name": "Health", "description": "Service health checks"},
-        ],
-    )
-
-    # ── CORS ──────────────────────────────────────────────────────────────────
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
-    )
-
-    # ── Custom middleware (applied inside-out) ────────────────────────────────
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(RequestContextMiddleware)
-
-    # ── Exception handlers ────────────────────────────────────────────────────
-    register_exception_handlers(app)
-
-    # ── API routes ────────────────────────────────────────────────────────────
-    from app.api.v1.router import api_router  # noqa: PLC0415
-
-    app.include_router(api_router, prefix=settings.API_V1_PREFIX)
-
-    # ── Health checks ─────────────────────────────────────────────────────────
-    from app.api.health import health_router  # noqa: PLC0415
-
-    app.include_router(health_router)
-
-    return app
+app = FastAPI(
+    title=settings.app_name,
+    version="1.0.0",
+    description="NEXA — The Next Way to Learn API",
+    lifespan=lifespan,
+)
 
 
-app = create_application()
+# ============================================================
+# Middleware
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_origin],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# Exception Handlers
+# ============================================================
+
+app.add_exception_handler(
+    AppError,
+    app_error_handler,
+)
+
+app.add_exception_handler(
+    Exception,
+    general_error_handler,
+)
+
+
+# ============================================================
+# API Routes
+# ============================================================
+
+API_PREFIX = "/api/v1"
+
+app.include_router(
+    auth.router,
+    prefix=API_PREFIX,
+)
+
+app.include_router(
+    users.router,
+    prefix=API_PREFIX,
+)
+
+app.include_router(
+    ai.router,
+    prefix=API_PREFIX,
+)
+
+app.include_router(
+    admin.router,
+    prefix=API_PREFIX,
+)
+
+app.include_router(
+    teacher.router,
+    prefix=API_PREFIX,
+)
+
+
+# ============================================================
+# Health & Readiness
+# ============================================================
+
+@app.get(
+    "/health",
+    tags=["System"],
+)
+async def health():
+    return {
+        "status": "ok",
+        "service": "nexa-api",
+    }
+
+
+@app.get(
+    "/ready",
+    tags=["System"],
+)
+async def readiness():
+    """
+    Verify that the API can communicate with the database.
+    """
+
+    async with engine.connect() as conn:
+        await conn.execute(text("SELECT 1"))
+
+    return {
+        "status": "ready",
+        "database": "connected",
+    }

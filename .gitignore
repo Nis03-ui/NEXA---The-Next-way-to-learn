@@ -1,4 +1,13 @@
+# =========================
+# Environment / secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
 *.pyo
@@ -6,22 +15,35 @@ __pycache__/
 venv/
 env/
 
-# Environment / secrets
-.env
-.env.*
-!.env.example
-
-# Test / tooling
+# Python tooling
 .pytest_cache/
 .coverage
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Node / Next.js
+# =========================
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# =========================
 # IDE
+# =========================
 .vscode/
 .idea/
 
+# =========================
 # OS
+# =========================
 .DS_Store
 Thumbs.db

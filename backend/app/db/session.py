@@ -1,41 +1,25 @@
-"""
-Async SQLAlchemy engine and session factory.
-"""
-from typing import AsyncGenerator
-
 from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
     create_async_engine,
+    async_sessionmaker,
+    AsyncSession,
 )
 
 from app.core.config import settings
 
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    settings.database_url,
+    echo=False,
 )
 
-AsyncSessionFactory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
+
+SessionLocal = async_sessionmaker(
+    engine,
     expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
+    class_=AsyncSession,
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency that yields an async database session."""
-    async with AsyncSessionFactory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+async def get_db():
+    async with SessionLocal() as session:
+        yield session

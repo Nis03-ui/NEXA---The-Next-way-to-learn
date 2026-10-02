@@ -1,0 +1,170 @@
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import require_roles
+from app.db.session import get_db
+from app.models.chat import ChatSession
+from app.models.content import Content
+from app.models.user import Role, User
+from app.schemas.admin import AdminUserOut, RoleUpdate
+
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+
+@router.get("/stats")
+async def stats(
+    _: User = Depends(require_roles(Role.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    user_count = (
+        await db.execute(
+            select(func.count(User.id))
+        )
+    ).scalar_one()
+
+    teacher_count = (
+        await db.execute(
+            select(func.count(User.id))
+            .where(User.role == Role.TEACHER)
+        )
+    ).scalar_one()
+
+    student_count = (
+        await db.execute(
+            select(func.count(User.id))
+            .where(User.role == Role.STUDENT)
+        )
+    ).scalar_one()
+
+    admin_count = (
+        await db.execute(
+            select(func.count(User.id))
+            .where(User.role == Role.ADMIN)
+        )
+    ).scalar_one()
+
+    session_count = (
+        await db.execute(
+            select(func.count(ChatSession.id))
+        )
+    ).scalar_one()
+
+    content_count = (
+        await db.execute(
+            select(func.count(Content.id))
+        )
+    ).scalar_one()
+
+    return {
+        "users": user_count,
+        "students": student_count,
+        "teachers": teacher_count,
+        "admins": admin_count,
+        "chat_sessions": session_count,
+        "resources": content_count,
+        "api_health": "ok",
+    }
+
+
+@router.get(
+    "/users",
+    response_model=list[AdminUserOut],
+)
+async def get_users(
+    _: User = Depends(require_roles(Role.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User).order_by(User.created_at.desc())
+    )
+
+    return result.scalars().all()
+
+
+@router.get(
+    "/users/{user_id}",
+    response_model=AdminUserOut,
+)
+async def get_user(
+    user_id: int,
+    _: User = Depends(require_roles(Role.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    return user
+
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=AdminUserOut,
+)
+async def update_user_role(
+    user_id: int,
+    data: RoleUpdate,
+    admin: User = Depends(require_roles(Role.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    if user.id == admin.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot change your own role",
+        )
+
+    user.role = data.role
+
+    await db.commit()
+    await db.refresh(user)
+
+    return user
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    admin: User = Depends(require_roles(Role.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
+    if user.id == admin.id:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot delete your own account",
+        )
+
+    await db.execute(
+        delete(ChatSession).where(
+            ChatSession.user_id == user.id
+        )
+    )
+
+    await db.delete(user)
+    await db.commit()
+
+    return {
+        "message": "User deleted successfully"
+    }

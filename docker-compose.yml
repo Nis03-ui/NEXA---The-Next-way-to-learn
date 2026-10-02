@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: nexa
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes: ["nexa_pg:/var/lib/postgresql"]
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/nexa
+      JWT_SECRET_KEY: change-me
+      FRONTEND_ORIGIN: http://localhost:3000
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports: ["8000:8000"]
+    depends_on: [postgres]
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    ports: ["3000:3000"]
+    depends_on: [backend]
+volumes:
+  nexa_pg:

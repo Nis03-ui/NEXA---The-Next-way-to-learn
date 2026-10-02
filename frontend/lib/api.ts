@@ -1,0 +1,315 @@
+const API =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"
+
+type ApiError = {
+  detail?: string
+  message?: string
+}
+
+/* =========================================================
+   AUTH TYPES
+========================================================= */
+
+export type Role = "STUDENT" | "TEACHER" | "ADMIN"
+
+export type AuthUser = {
+  id: number
+  name: string
+  email: string
+  role: Role
+}
+
+export type TokenResponse = {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  user: AuthUser
+}
+
+export type MessageResponse = {
+  message: string
+}
+
+export type VerificationResponse = {
+  message: string
+  verification_token?: string | null
+}
+
+export type ForgotPasswordResponse = {
+  message: string
+  reset_token?: string | null
+}
+
+/* =========================================================
+   AI / CHAT TYPES
+========================================================= */
+
+export type TutorMode =
+  | "normal"
+  | "explain"
+  | "study"
+  | "code"
+  | "quiz"
+
+export type ChatSession = {
+  id: number
+  title: string
+  created_at: string
+}
+
+export type ChatMessage = {
+  id: number
+  role: "user" | "assistant"
+  content: string
+  created_at: string
+}
+
+export type ChatSessionDetail = {
+  id: number
+  title: string
+  created_at: string
+  messages: ChatMessage[]
+}
+
+export type AISource = {
+  content_id: number
+  title: string
+  subject: string
+  chunk_index: number
+  distance: number
+}
+
+export type ChatResponse = {
+  answer: string
+  session_id: number
+  agent: string
+  sources: AISource[]
+}
+
+/* =========================================================
+   TEACHER / CMS TYPES
+========================================================= */
+
+export type Content = {
+  id: number
+  title: string
+  description: string | null
+  body: string
+  subject: string
+  author_id: number
+  published: boolean
+  created_at: string
+  updated_at: string | null
+}
+
+export type ContentCreate = {
+  title: string
+  description?: string | null
+  body: string
+  subject: string
+  published?: boolean
+}
+
+export type ContentUpdate = {
+  title?: string | null
+  description?: string | null
+  body?: string | null
+  subject?: string | null
+  published?: boolean | null
+}
+
+/* =========================================================
+   BASE API CLIENT
+========================================================= */
+
+export async function api<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("nexa_token")
+      : null
+
+  const headers = new Headers(options.headers)
+
+  if (options.body) {
+    headers.set("Content-Type", "application/json")
+  }
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`)
+  }
+
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers,
+  })
+
+  const data = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const error = data as ApiError | null
+
+    throw new Error(
+      error?.detail ||
+        error?.message ||
+        `Request failed with status ${response.status}`,
+    )
+  }
+
+  return data as T
+}
+
+/* =========================================================
+   AUTH API
+========================================================= */
+
+export const auth = {
+  register: (
+    name: string,
+    email: string,
+    password: string,
+  ) =>
+    api<TokenResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+      }),
+    }),
+
+  login: (
+    email: string,
+    password: string,
+  ) =>
+    api<TokenResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+        password,
+      }),
+    }),
+
+  refresh: (refreshToken: string) =>
+    api<TokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+      }),
+    }),
+
+  logout: (refreshToken: string) =>
+    api<MessageResponse>("/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+      }),
+    }),
+
+  me: () =>
+    api<AuthUser>("/users/me"),
+
+  forgotPassword: (email: string) =>
+    api<ForgotPasswordResponse>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+      }),
+    }),
+
+  resetPassword: (
+    token: string,
+    newPassword: string,
+  ) =>
+    api<MessageResponse>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        token,
+        new_password: newPassword,
+      }),
+    }),
+
+  verifyEmail: (token: string) =>
+    api<VerificationResponse>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify({
+        token,
+      }),
+    }),
+
+  resendVerification: (email: string) =>
+    api<VerificationResponse>("/auth/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({
+        email,
+      }),
+    }),
+}
+
+/* =========================================================
+   AI / TUTOR API
+========================================================= */
+
+export const ai = {
+  chat: (
+    message: string,
+    session_id?: number,
+    mode: TutorMode = "normal",
+  ) =>
+    api<ChatResponse>("/ai/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        session_id,
+        mode,
+      }),
+    }),
+
+  sessions: () =>
+    api<ChatSession[]>("/ai/sessions"),
+
+  session: (id: number) =>
+    api<ChatSessionDetail>(`/ai/sessions/${id}`),
+
+  deleteSession: (id: number) =>
+    api<{ message: string }>(
+      `/ai/sessions/${id}`,
+      {
+        method: "DELETE",
+      },
+    ),
+}
+
+/* =========================================================
+   TEACHER / CMS API
+========================================================= */
+
+export const teacher = {
+  getContent: () =>
+    api<Content[]>("/teacher/content"),
+
+  getContentById: (id: number) =>
+    api<Content>(`/teacher/content/${id}`),
+
+  createContent: (data: ContentCreate) =>
+    api<Content>("/teacher/content", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateContent: (
+    id: number,
+    data: ContentUpdate,
+  ) =>
+    api<Content>(`/teacher/content/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  deleteContent: (id: number) =>
+    api<unknown>(`/teacher/content/${id}`, {
+      method: "DELETE",
+    }),
+}

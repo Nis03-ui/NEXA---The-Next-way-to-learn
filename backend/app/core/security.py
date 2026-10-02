@@ -1,119 +1,239 @@
-"""
-Security utilities: password hashing (Argon2), JWT creation/validation.
-"""
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+import hashlib
+import secrets
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerificationError, VerifyMismatchError, InvalidHashError
+from argon2.exceptions import VerificationError, VerifyMismatchError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
-
-_ph = PasswordHasher(
-    time_cost=2,
-    memory_cost=65536,
-    parallelism=2,
-    hash_len=32,
-    salt_len=16,
-)
-
-# ── Password utilities ────────────────────────────────────────────────────────
-
-def hash_password(plain_password: str) -> str:
-    """Return an Argon2 hash of the plaintext password."""
-    return _ph.hash(plain_password)
+from app.db.session import get_db
+from app.models.user import Role, User
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+# ============================================================
+# Password Security
+# ============================================================
+
+password_hasher = PasswordHasher()
+
+
+def hash_password(password: str) -> str:
     """
-    Verify a plaintext password against an Argon2 hash.
-    Returns False on any mismatch or verification error.
+    Hash a password using Argon2.
+    """
+    return password_hasher.hash(password)
+
+
+def verify_password(
+    password: str,
+    password_hash: str,
+) -> bool:
+    """
+    Verify a plain-text password against an Argon2 hash.
     """
     try:
-        return _ph.verify(hashed_password, plain_password)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        password_hasher.verify(password_hash, password)
+        return True
+
+    except (VerifyMismatchError, VerificationError):
+        return False
+
+    except Exception:
         return False
 
 
-def needs_rehash(hashed_password: str) -> bool:
-    """Return True if the hash should be upgraded (parameters changed)."""
-    return _ph.check_needs_rehash(hashed_password)
+def needs_password_rehash(password_hash: str) -> bool:
+    """
+    Check whether the stored password hash should be upgraded.
+    """
+    try:
+        return password_hasher.check_needs_rehash(password_hash)
+
+    except Exception:
+        return False
 
 
-# ── JWT utilities ─────────────────────────────────────────────────────────────
+# ============================================================
+# Access Token
+# ============================================================
 
-def _create_token(
-    subject: str,
-    token_type: str,
-    expires_delta: timedelta,
-    extra_claims: Optional[dict[str, Any]] = None,
-) -> str:
-    now = datetime.now(tz=timezone.utc)
-    payload: dict[str, Any] = {
-        "sub": subject,
-        "type": token_type,
+def create_token(user_id: int) -> str:
+    """
+    Create a short-lived JWT access token.
+    """
+
+    now = datetime.now(timezone.utc)
+
+    payload = {
+        "sub": str(user_id),
         "iat": now,
-        "exp": now + expires_delta,
+        "exp": now + timedelta(
+            minutes=settings.access_token_expire_minutes
+        ),
+        "type": "access",
     }
-    if extra_claims:
-        payload.update(extra_claims)
-    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-
-def create_access_token(subject: str, role: str) -> str:
-    """Create a short-lived JWT access token."""
-    return _create_token(
-        subject=subject,
-        token_type="access",
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        extra_claims={"role": role},
+    return jwt.encode(
+        payload,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
     )
 
 
-def create_refresh_token(subject: str) -> str:
-    """Create a long-lived JWT refresh token."""
-    return _create_token(
-        subject=subject,
-        token_type="refresh",
-        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-    )
-
-
-def decode_access_token(token: str) -> dict[str, Any]:
+def decode_token(token: str) -> dict:
     """
     Decode and validate a JWT access token.
-    Raises JWTError on failure.
     """
+
     try:
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
         )
-        if payload.get("type") != "access":
-            raise JWTError("Token type mismatch")
-        return payload
-    except JWTError:
-        raise
+
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        ) from exc
+
+    return payload
 
 
-def decode_refresh_token(token: str) -> dict[str, Any]:
+# ============================================================
+# Refresh Token
+# ============================================================
+
+def create_refresh_token() -> str:
     """
-    Decode and validate a JWT refresh token.
-    Raises JWTError on failure.
+    Generate a cryptographically secure refresh token.
+
+    The raw token is returned to the client.
+    Only its hash will be stored in the database.
     """
+
+    return secrets.token_urlsafe(64)
+
+
+def hash_refresh_token(token: str) -> str:
+    """
+    Hash a refresh token before storing or comparing it.
+    """
+
+    return hashlib.sha256(
+        token.encode("utf-8")
+    ).hexdigest()
+
+
+# ============================================================
+# Authentication
+# ============================================================
+
+bearer_scheme = HTTPBearer()
+
+
+async def current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(
+        bearer_scheme
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+
+    token = credentials.credentials
+
+    payload = decode_token(token)
+
+    # Make sure this is an access token.
+    if payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    subject = payload.get("sub")
+
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
+        user_id = int(subject)
+
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        ) from exc
+
+    result = await db.execute(
+        select(User).where(
+            User.id == user_id
         )
-        if payload.get("type") != "refresh":
-            raise JWTError("Token type mismatch")
-        return payload
-    except JWTError:
-        raise
+    )
+
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={
+                "WWW-Authenticate": "Bearer",
+            },
+        )
+
+    return user
+
+
+# ============================================================
+# Role-Based Access Control
+# ============================================================
+
+def require_roles(*roles: Role):
+
+    if not roles:
+        raise ValueError(
+            "require_roles() requires at least one role"
+        )
+
+    allowed_roles = set(roles)
+
+    async def role_dependency(
+        user: User = Depends(current_user),
+    ) -> User:
+
+        user_role = (
+            user.role
+            if isinstance(user.role, Role)
+            else Role(user.role)
+        )
+
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+
+        return user
+
+    return role_dependency

@@ -1,10 +1,7 @@
-"""
-Centralized model registry — import all models here so Alembic can discover them.
-"""
-from app.db.base import Base  # noqa: F401
-from app.models.user import User, Role  # noqa: F401
-from app.models.course import Course, Chapter, Note, CourseStatus  # noqa: F401
-from app.models.enrollment import Enrollment, EnrollmentStatus  # noqa: F401
-from app.models.assignment import Assignment, Submission  # noqa: F401
-from app.models.quiz import Quiz, Question, QuizAttempt, QuizSource  # noqa: F401
-from app.models.ai_chat import AIConversation, StudyPlan, ActivityLog  # noqa: F401
+from app.models.user import User, Role
+from app.models.chat import ChatSession, ChatMessage
+from app.models.content import Content
+from app.models.content_chunk import ContentChunk
+from app.models.auth_session import AuthSession
+from app.models.password_reset import PasswordResetToken
+from app.models.email_verification import EmailVerificationToken
